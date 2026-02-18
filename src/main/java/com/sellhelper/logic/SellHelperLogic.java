@@ -41,7 +41,7 @@ public class SellHelperLogic {
     /** True while we're waiting for a purchase after AH slots are full. */
     private volatile boolean inFailback = false;
 
-    private volatile ScheduledFuture<?> reselTimer = null;
+    private volatile ScheduledFuture<?> resellTimer = null;
 
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -63,7 +63,7 @@ public class SellHelperLogic {
 
     /** Called by ClientReceiveMessageEvents when a chat line arrives. */
     public void onChatMessage(String message) {
-        // Server AH-full response → enter failback, start resel timer
+        // Server AH-full response → enter failback, start resell timer
         if (message.contains("Освободите хранилище") || message.contains("уберите предметы с продажи")) {
             if (active.get() && !inFailback) {
                 inFailback = true;
@@ -319,7 +319,7 @@ public class SellHelperLogic {
 
     private void doFailback(SellHelperConfig cfg) {
         // Physical hotbar-full fallback (no free slot to move items into).
-        // Behaves the same as AH-full: stop selling, start resel timer.
+        // Behaves the same as AH-full: stop selling, start resell timer.
         if (active.get() && !inFailback) {
             inFailback = true;
             cycleRunning.set(false);
@@ -327,20 +327,20 @@ public class SellHelperLogic {
         }
     }
 
-    /** Sends /ah resel immediately and then every 35 s. */
+    /** Sends /ah resell immediately and then every 35 s. */
     private void startFailbackTimer() {
         stopReselTimer();
         runOnMain(() -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.player != null && active.get()) {
-                client.player.networkHandler.sendChatCommand("ah resel");
+                client.player.networkHandler.sendChatCommand("ah resell");
             }
         });
-        reselTimer = scheduler.scheduleAtFixedRate(() ->
+        resellTimer = scheduler.scheduleAtFixedRate(() ->
                 runOnMain(() -> {
                     MinecraftClient client = MinecraftClient.getInstance();
                     if (client.player != null && active.get()) {
-                        client.player.networkHandler.sendChatCommand("ah resel");
+                        client.player.networkHandler.sendChatCommand("ah resell");
                     }
                 }),
                 35, 35, TimeUnit.SECONDS
@@ -374,10 +374,10 @@ public class SellHelperLogic {
     // --------------------------------------------------- utilities
 
     private void stopReselTimer() {
-        ScheduledFuture<?> t = reselTimer;
+        ScheduledFuture<?> t = resellTimer;
         if (t != null) {
             t.cancel(false);
-            reselTimer = null;
+            resellTimer = null;
         }
     }
 
