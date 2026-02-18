@@ -9,7 +9,6 @@ import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 import java.awt.*;
@@ -39,6 +38,9 @@ public class SellHelperLogic {
     private final AtomicBoolean active       = new AtomicBoolean(false);
     private final AtomicBoolean cycleRunning = new AtomicBoolean(false);
 
+    /** True while we're waiting for a purchase after AH slots are full. */
+    private volatile boolean inFailback = false;
+
     private volatile ScheduledFuture<?> reselTimer = null;
 
     private final ScheduledExecutorService scheduler =
@@ -61,11 +63,22 @@ public class SellHelperLogic {
 
     /** Called by ClientReceiveMessageEvents when a chat line arrives. */
     public void onChatMessage(String message) {
+        // Server AH-full response → enter failback, start resel timer
+        if (message.contains("Освободите хранилище") || message.contains("уберите предметы с продажи")) {
+            if (active.get() && !inFailback) {
+                inFailback = true;
+                // cycleRunning will be cleared by the post-sell callback; start timer now
+                startFailbackTimer();
+            }
+            return;
+        }
+
+        // Successful purchase → exit failback, resume selling
         if (message.contains("У Вас купили") && message.contains("на /ah")) {
             stopReselTimer();
+            inFailback = false;
             if (active.get()) {
-                // Force-reset so startCycle() can acquire the lock
-                cycleRunning.set(false);
+                // startCycle() is a no-op if cycle is already running
                 scheduleAfter(this::startCycle, rnd(300, 600));
             }
         }
@@ -82,6 +95,7 @@ public class SellHelperLogic {
     private void deactivate() {
         active.set(false);
         cycleRunning.set(false);
+        inFailback = false;
         stopReselTimer();
     }
 
@@ -233,8 +247,13 @@ public class SellHelperLogic {
             if (client.player == null) return;
             client.player.networkHandler.sendChatCommand("ah sell " + cfg.price);
         });
-        // Release the cycle lock after the sell delay; the purchase event will restart it
-        scheduleAfter(() -> cycleRunning.set(false), rnd(800, 1200));
+        // After the sell delay: if the server hasn't flagged AH-full, immediately sell the next item
+        scheduleAfter(() -> {
+            cycleRunning.set(false);
+            if (active.get() && !inFailback) {
+                startCycle();
+            }
+        }, rnd(800, 1200));
     }
 
     // --------------------------------------------------- inventory helpers
@@ -296,21 +315,27 @@ public class SellHelperLogic {
 
     // --------------------------------------------------- failback
 
+    // --------------------------------------------------- failback
+
     private void doFailback(SellHelperConfig cfg) {
+        // Physical hotbar-full fallback (no free slot to move items into).
+        // Behaves the same as AH-full: stop selling, start resel timer.
+        if (active.get() && !inFailback) {
+            inFailback = true;
+            cycleRunning.set(false);
+            startFailbackTimer();
+        }
+    }
+
+    /** Sends /ah resel immediately and then every 35 s. */
+    private void startFailbackTimer() {
+        stopReselTimer();
         runOnMain(() -> {
             MinecraftClient client = MinecraftClient.getInstance();
-            if (client.player == null) return;
-
-            client.inGameHud.getChatHud().addMessage(
-                    Text.literal("§e[SellHelper] §fОсвободите хранилище или уберите предметы с продажи")
-            );
-            client.player.networkHandler.sendChatCommand("ah resel");
+            if (client.player != null && active.get()) {
+                client.player.networkHandler.sendChatCommand("ah resel");
+            }
         });
-
-        cycleRunning.set(false);
-        stopReselTimer();
-
-        // Repeat /ah resel every 35 seconds while waiting for a purchase
         reselTimer = scheduler.scheduleAtFixedRate(() ->
                 runOnMain(() -> {
                     MinecraftClient client = MinecraftClient.getInstance();
