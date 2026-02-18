@@ -16,6 +16,8 @@ public class SellHelperConfig {
     public String itemId = "minecraft:air";
     public int amount = 1;
     public long price = 0;
+    /** 1 = send /ah resell command directly; 0 = open /ah GUI → click slot 47 → click slot 53 */
+    public int ahResell = 1;
 
     private static SellHelperConfig instance;
 

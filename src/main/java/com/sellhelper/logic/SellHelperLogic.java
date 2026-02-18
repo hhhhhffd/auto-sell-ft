@@ -2,12 +2,14 @@ package com.sellhelper.logic;
 
 import com.sellhelper.config.SellHelperConfig;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.PlayerScreenHandler;
+import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Identifier;
 
@@ -330,21 +332,61 @@ public class SellHelperLogic {
     /** Sends /ah resell immediately and then every 35 s. */
     private void startFailbackTimer() {
         stopReselTimer();
-        runOnMain(() -> {
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client.player != null && active.get()) {
-                client.player.networkHandler.sendChatCommand("ah resell");
-            }
-        });
-        resellTimer = scheduler.scheduleAtFixedRate(() ->
+        doResell();
+        resellTimer = scheduler.scheduleAtFixedRate(this::doResell, 35, 35, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Resell action — two modes controlled by {@code SellHelperConfig.ahResell}:
+     *   1 = send {@code /ah resell} directly (default)
+     *   0 = open {@code /ah} GUI → click slot 47 → wait → click slot 53 → close
+     */
+    private void doResell() {
+        if (!active.get()) return;
+        SellHelperConfig cfg = SellHelperConfig.get();
+
+        if (cfg.ahResell == 1) {
+            runOnMain(() -> {
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client.player != null && active.get()) {
+                    client.player.networkHandler.sendChatCommand("ah resell");
+                }
+            });
+        } else {
+            // Open /ah GUI
+            runOnMain(() -> {
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client.player != null && active.get()) {
+                    client.player.networkHandler.sendChatCommand("ah");
+                }
+            });
+            // Click slot 47 once the GUI is open
+            scheduleAfter(() -> {
                 runOnMain(() -> {
                     MinecraftClient client = MinecraftClient.getInstance();
-                    if (client.player != null && active.get()) {
-                        client.player.networkHandler.sendChatCommand("ah resell");
+                    if (client.player == null || !(client.currentScreen instanceof HandledScreen<?>)) return;
+                    ScreenHandler handler = ((HandledScreen<?>) client.currentScreen).getScreenHandler();
+                    if (handler.slots.size() > 47) {
+                        client.interactionManager.clickSlot(
+                                handler.syncId, 47, 0, SlotActionType.PICKUP, client.player);
                     }
-                }),
-                35, 35, TimeUnit.SECONDS
-        );
+                });
+                // Click slot 53 in whatever screen opened after slot 47
+                scheduleAfter(() -> {
+                    runOnMain(() -> {
+                        MinecraftClient client = MinecraftClient.getInstance();
+                        if (client.player == null || !(client.currentScreen instanceof HandledScreen<?>)) return;
+                        ScreenHandler handler = ((HandledScreen<?>) client.currentScreen).getScreenHandler();
+                        if (handler.slots.size() > 53) {
+                            client.interactionManager.clickSlot(
+                                    handler.syncId, 53, 0, SlotActionType.PICKUP, client.player);
+                        }
+                    });
+                    // Close the screen when done
+                    scheduleAfter(() -> closeInventory(() -> {}), rnd(200, 400));
+                }, rnd(300, 600));
+            }, rnd(400, 800));
+        }
     }
 
     // --------------------------------------------------- all sold

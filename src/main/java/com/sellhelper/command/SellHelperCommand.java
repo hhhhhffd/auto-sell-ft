@@ -33,6 +33,14 @@ public class SellHelperCommand {
                                                 ))
                                         )
                                 )
+                                .then(ClientCommandManager.literal("ah_resell")
+                                        .then(ClientCommandManager.argument("mode", IntegerArgumentType.integer(0, 1))
+                                                .executes(ctx -> setAhResell(
+                                                        ctx.getSource(),
+                                                        IntegerArgumentType.getInteger(ctx, "mode")
+                                                ))
+                                        )
+                                )
                 )
         );
     }
@@ -61,6 +69,16 @@ public class SellHelperCommand {
         config.save();
 
         source.sendFeedback(Text.literal("[SellHelper] Цена: " + price));
+        return 1;
+    }
+
+    private static int setAhResell(FabricClientCommandSource source, int mode) {
+        SellHelperConfig config = SellHelperConfig.get();
+        config.ahResell = mode;
+        config.save();
+
+        String desc = (mode == 1) ? "команда /ah resell" : "GUI (слот 47 → слот 53)";
+        source.sendFeedback(Text.literal("[SellHelper] ah_resell: " + mode + " (" + desc + ")"));
         return 1;
     }
 }
