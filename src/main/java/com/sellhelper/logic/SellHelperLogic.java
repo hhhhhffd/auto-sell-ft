@@ -340,6 +340,9 @@ public class SellHelperLogic {
      * Resell action — two modes controlled by {@code SellHelperConfig.ahResell}:
      *   1 = send {@code /ah resell} directly (default)
      *   0 = open {@code /ah} GUI → click slot 47 → wait → click slot 53 → close
+     *
+     * Mode 0 uses waitForScreenThenClick() to retry every 200ms until the
+     * server-side GUI is actually open, avoiding silent misses due to latency.
      */
     private void doResell() {
         if (!active.get()) return;
@@ -353,40 +356,52 @@ public class SellHelperLogic {
                 }
             });
         } else {
-            // Open /ah GUI
+            // Step 1: open /ah
             runOnMain(() -> {
                 MinecraftClient client = MinecraftClient.getInstance();
                 if (client.player != null && active.get()) {
                     client.player.networkHandler.sendChatCommand("ah");
                 }
             });
-            // Click slot 47 once the GUI is open
-            scheduleAfter(() -> {
-                runOnMain(() -> {
-                    MinecraftClient client = MinecraftClient.getInstance();
-                    if (client.player == null || !(client.currentScreen instanceof HandledScreen<?>)) return;
-                    ScreenHandler handler = ((HandledScreen<?>) client.currentScreen).getScreenHandler();
-                    if (handler.slots.size() > 47) {
-                        client.interactionManager.clickSlot(
-                                handler.syncId, 47, 0, SlotActionType.PICKUP, client.player);
-                    }
-                });
-                // Click slot 53 in whatever screen opened after slot 47
-                scheduleAfter(() -> {
-                    runOnMain(() -> {
-                        MinecraftClient client = MinecraftClient.getInstance();
-                        if (client.player == null || !(client.currentScreen instanceof HandledScreen<?>)) return;
-                        ScreenHandler handler = ((HandledScreen<?>) client.currentScreen).getScreenHandler();
-                        if (handler.slots.size() > 53) {
-                            client.interactionManager.clickSlot(
-                                    handler.syncId, 53, 0, SlotActionType.PICKUP, client.player);
-                        }
-                    });
-                    // Close the screen when done
-                    scheduleAfter(() -> closeInventory(() -> {}), rnd(200, 400));
-                }, rnd(300, 600));
-            }, rnd(400, 800));
+            // Step 2: wait for GUI to open, then click slot 47
+            waitForScreenThenClick(47, 10, () ->
+                // Step 3: wait for next screen (resell confirm), then click slot 53
+                waitForScreenThenClick(53, 10, () ->
+                    // Step 4: close
+                    scheduleAfter(() -> closeInventory(() -> {}), rnd(200, 400))
+                )
+            );
         }
+    }
+
+    /**
+     * Polls every 200ms (up to {@code retriesLeft} times) until a
+     * {@link HandledScreen} with enough slots is open, then clicks {@code slot}.
+     * Calls {@code callback} afterwards regardless.
+     */
+    private void waitForScreenThenClick(int slot, int retriesLeft, Runnable callback) {
+        scheduleAfter(() -> {
+            MinecraftClient client = MinecraftClient.getInstance();
+            boolean[] clicked = {false};
+            client.execute(() -> {
+                if (client.currentScreen instanceof HandledScreen<?> screen) {
+                    net.minecraft.screen.ScreenHandler handler = screen.getScreenHandler();
+                    if (handler.slots.size() > slot) {
+                        client.interactionManager.clickSlot(
+                                handler.syncId, slot, 0, SlotActionType.PICKUP, client.player);
+                        clicked[0] = true;
+                    }
+                }
+            });
+            // Give the main thread a moment to process the click result
+            scheduleAfter(() -> {
+                if (clicked[0] || retriesLeft <= 0) {
+                    callback.run();
+                } else {
+                    waitForScreenThenClick(slot, retriesLeft - 1, callback);
+                }
+            }, 100);
+        }, 200);
     }
 
     // --------------------------------------------------- all sold
