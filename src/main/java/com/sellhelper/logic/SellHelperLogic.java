@@ -333,7 +333,7 @@ public class SellHelperLogic {
     private void startFailbackTimer() {
         stopReselTimer();
         doResell();
-        resellTimer = scheduler.scheduleAtFixedRate(this::doResell, 35, 35, TimeUnit.SECONDS);
+        resellTimer = scheduler.scheduleAtFixedRate(this::doResell, 63, 63, TimeUnit.SECONDS);
     }
 
     /**
