@@ -364,9 +364,9 @@ public class SellHelperLogic {
                 }
             });
             // Step 2: wait for GUI to open, then click slot 47
-            waitForScreenThenClick(47, 10, () ->
+            waitForScreenThenClick(46, 10, () ->
                 // Step 3: wait for next screen (resell confirm), then click slot 53
-                waitForScreenThenClick(53, 10, () ->
+                waitForScreenThenClick(52, 10, () ->
                     // Step 4: close
                     scheduleAfter(() -> closeInventory(() -> {}), rnd(200, 400))
                 )
