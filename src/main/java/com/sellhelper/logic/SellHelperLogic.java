@@ -66,7 +66,7 @@ public class SellHelperLogic {
     /** Called by ClientReceiveMessageEvents when a chat line arrives. */
     public void onChatMessage(String message) {
         // Server AH-full response → enter failback, start resell timer
-        if (message.contains("Освободите хранилище") || message.contains("уберите предметы с продажи")) {
+        if (message.contains("oсвободите хранилище") || message.contains("арендуйте больше слотов на /ah rent!")) {
             if (active.get() && !inFailback) {
                 inFailback = true;
                 // cycleRunning will be cleared by the post-sell callback; start timer now
